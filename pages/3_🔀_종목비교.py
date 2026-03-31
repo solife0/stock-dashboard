@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from pykrx import stock
+import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="종목 비교", page_icon="🔀", layout="wide")
@@ -30,8 +30,12 @@ if st.button("조회", type="primary"):
             try:
                 end = datetime.today()
                 start = end - timedelta(days=period_map[period])
-                start_str = start.strftime("%Y%m%d")
-                end_str = end.strftime("%Y%m%d")
+                start_str = start.strftime("%Y-%m-%d")
+                end_str = end.strftime("%Y-%m-%d")
+
+                listing = fdr.StockListing("KRX")
+                name_map = dict(zip(listing["Name"], listing["Code"]))
+                code_map = dict(zip(listing["Code"], listing["Name"]))
 
                 items = [x.strip() for x in tickers_input.split(",")]
                 fig = go.Figure()
@@ -39,22 +43,22 @@ if st.button("조회", type="primary"):
                 for item in items:
                     if item.isdigit():
                         code = item.zfill(6)
-                        name = stock.get_market_ticker_name(code)
+                        name = code_map.get(code, code)
                     else:
-                        tickers = stock.get_market_ticker_list()
-                        code = None
-                        for t in tickers:
-                            if stock.get_market_ticker_name(t) == item:
-                                code = t
-                                name = item
-                                break
+                        code = name_map.get(item)
                         if not code:
                             st.warning(f"'{item}' 종목을 찾을 수 없습니다. 건너뜁니다.")
                             continue
+                        name = item
 
-                    df = stock.get_market_ohlcv_by_date(start_str, end_str, code)
+                    df = fdr.DataReader(code, start_str, end_str)
+                    if df.empty:
+                        st.warning(f"'{name}' 데이터가 없습니다.")
+                        continue
+
                     # 첫날 기준 정규화 (100 기준)
-                    normalized = df["종가"] / df["종가"].iloc[0] * 100
+                    close = df["Close"]
+                    normalized = close / close.iloc[0] * 100
 
                     fig.add_trace(go.Scatter(
                         x=df.index,

@@ -1,7 +1,7 @@
-﻿streamlit>=1.32.0
-pykrx>=1.0.47
+streamlit>=1.32.0
+FinanceDataReader>=0.9.50
 pandas>=2.0.0
 plotly>=5.18.0
 numpy>=2.0.0
 matplotlib>=3.8.0
-setuptools>=68.0.0
+requests>=2.31.0

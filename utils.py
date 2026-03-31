@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from pykrx import stock
+import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 
 
@@ -8,16 +8,10 @@ from datetime import datetime, timedelta
 def get_ticker_list():
     """KOSPI + KOSDAQ 전체 종목 목록 반환 (캐시 1시간)"""
     try:
-        kospi  = stock.get_market_ticker_list(market="KOSPI")
-        kosdaq = stock.get_market_ticker_list(market="KOSDAQ")
-        tickers = list(kospi) + list(kosdaq)
-        name_map = {}
-        for t in tickers:
-            try:
-                name = stock.get_market_ticker_name(t)
-                name_map[name] = t
-            except Exception:
-                pass
+        kospi  = fdr.StockListing("KOSPI")[["Code", "Name"]]
+        kosdaq = fdr.StockListing("KOSDAQ")[["Code", "Name"]]
+        all_stocks = pd.concat([kospi, kosdaq], ignore_index=True)
+        name_map = dict(zip(all_stocks["Name"], all_stocks["Code"]))
         return name_map  # {"삼성전자": "005930", ...}
     except Exception as e:
         st.error(f"종목 목록 로딩 실패: {e}")
@@ -27,18 +21,15 @@ def get_ticker_list():
 def resolve_code(query: str, name_map: dict) -> tuple[str, str]:
     """종목명 또는 코드 입력 → (코드, 종목명) 반환"""
     query = query.strip()
-    # 코드로 입력한 경우
     if query.isdigit():
-        try:
-            name = stock.get_market_ticker_name(query)
-            return query, name
-        except Exception:
-            return query, query
-    # 종목명으로 입력한 경우
+        code = query.zfill(6)
+        # 코드로 종목명 역조회
+        reverse = {v: k for k, v in name_map.items()}
+        name = reverse.get(code, code)
+        return code, name
     code = name_map.get(query)
     if code:
         return code, query
-    # 부분 일치 검색
     matches = {k: v for k, v in name_map.items() if query in k}
     if matches:
         name = list(matches.keys())[0]
@@ -49,16 +40,13 @@ def resolve_code(query: str, name_map: dict) -> tuple[str, str]:
 @st.cache_data(ttl=1800)
 def get_ohlcv(code: str, start: str, end: str) -> pd.DataFrame:
     """일별 OHLCV 데이터 반환 (캐시 30분)"""
-    df = stock.get_market_ohlcv(start, end, code)
+    df = fdr.DataReader(code, start, end)
     df.index = pd.to_datetime(df.index)
-    return df
-
-
-@st.cache_data(ttl=1800)
-def get_investor_data(code: str, start: str, end: str) -> pd.DataFrame:
-    """투자자별 순매수 데이터 반환 (캐시 30분)"""
-    df = stock.get_market_trading_value_by_investor(start, end, code)
-    df.index = pd.to_datetime(df.index)
+    # 컬럼명 한글로 맞춤
+    df = df.rename(columns={
+        "Open": "시가", "High": "고가", "Low": "저가",
+        "Close": "종가", "Volume": "거래량"
+    })
     return df
 
 
@@ -81,7 +69,6 @@ def default_dates() -> tuple:
 
 def search_ui(name_map: dict, key_prefix: str = "") -> tuple[str, str]:
     """종목 검색 공통 UI 컴포넌트"""
-    # 즐겨찾기 빠른 선택
     favs = st.session_state.get("favorites", [])
     if favs:
         fav_labels = ["직접 입력"] + [f["name"] for f in favs]
