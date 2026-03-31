@@ -5,7 +5,7 @@ import matplotlib.dates as mdates
 import matplotlib.gridspec as gridspec
 from matplotlib.patches import Rectangle
 import matplotlib.ticker as mticker
-from pykrx import stock
+import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="종가 차트", page_icon="📊", layout="wide")
@@ -34,25 +34,30 @@ if st.button("조회", type="primary"):
             try:
                 end = datetime.today()
                 start = end - timedelta(days=period_map[period])
-                start_str = start.strftime("%Y%m%d")
-                end_str = end.strftime("%Y%m%d")
+                start_str = start.strftime("%Y-%m-%d")
+                end_str = end.strftime("%Y-%m-%d")
 
+                # 종목코드 조회 (fdr 사용)
+                listing = fdr.StockListing("KRX")
                 if ticker_input.isdigit():
                     code = ticker_input.zfill(6)
-                    name = stock.get_market_ticker_name(code)
+                    row = listing[listing["Code"] == code]
+                    name = row["Name"].values[0] if len(row) > 0 else code
                 else:
-                    tickers = stock.get_market_ticker_list()
-                    code = None
-                    for t in tickers:
-                        if stock.get_market_ticker_name(t) == ticker_input:
-                            code = t
-                            name = ticker_input
-                            break
-                    if not code:
+                    row = listing[listing["Name"] == ticker_input]
+                    if len(row) == 0:
                         st.error("종목을 찾을 수 없습니다.")
                         st.stop()
+                    code = row["Code"].values[0]
+                    name = ticker_input
 
-                df = stock.get_market_ohlcv_by_date(start_str, end_str, code)
+                # OHLCV 데이터
+                df = fdr.DataReader(code, start_str, end_str)
+                df = df.rename(columns={
+                    "Open": "시가", "High": "고가", "Low": "저가",
+                    "Close": "종가", "Volume": "거래량"
+                })
+                df.index = pd.to_datetime(df.index)
 
                 if interval == "주별":
                     df = df.resample("W").agg({
@@ -89,31 +94,26 @@ if st.button("조회", type="primary"):
                 else:
                     width = 0.6
 
-                # ── GridSpec: 캔들(위) / 거래량(아래) ──────────
-                # hspace=0으로 완전히 붙이고
-                # ax1의 bottom을 날짜 글자 높이만큼 내려서 공간 확보
                 fig = plt.figure(figsize=(14, 9))
                 gs = gridspec.GridSpec(
                     2, 1,
                     height_ratios=[3, 1],
-                    hspace=0,           # 두 차트 간격 0
+                    hspace=0,
                     left=0.07, right=0.97, top=0.95, bottom=0.02
                 )
                 ax1 = fig.add_subplot(gs[0])
                 ax2 = fig.add_subplot(gs[1], sharex=ax1)
 
-                # ax1 하단을 날짜 공간만큼 올려서 날짜 라벨 표시 공간 확보
-                # 세로 날짜(rotation=90) 높이 ≈ figure의 약 12%
                 pos1 = ax1.get_position()
                 pos2 = ax2.get_position()
-                date_space = 0.10   # figure 비율 기준 날짜 공간
+                date_space = 0.10
 
                 ax1.set_position([
                     pos1.x0, pos2.y1 + date_space,
                     pos1.width, pos1.height - date_space
                 ])
 
-                # ── 캔들스틱 ─────────────────────────────────
+                # 캔들스틱
                 for date, row in zip(dates, df.itertuples()):
                     o, h, l, c = row.시가, row.고가, row.저가, row.종가
                     color = "#26a69a" if c >= o else "#ef5350"
@@ -132,7 +132,6 @@ if st.button("조회", type="primary"):
                 ax1.grid(True, alpha=0.3)
                 ax1.set_facecolor("white")
 
-                # 날짜: ax1 하단에 세로로 표시
                 ax1.xaxis.set_major_locator(major_locator)
                 if interval == "일별":
                     ax1.xaxis.set_major_formatter(
@@ -146,7 +145,7 @@ if st.button("조회", type="primary"):
                 ax1.tick_params(axis="x", labelbottom=True, labeltop=False, pad=2)
                 plt.setp(ax1.xaxis.get_majorticklabels(), rotation=90, ha="center", fontsize=8)
 
-                # ── 거래량 ────────────────────────────────────
+                # 거래량
                 ax2.bar(dates, df["거래량"], width=width * 0.8, color=vol_colors, alpha=0.8)
                 ax2.set_ylabel("거래량", fontsize=10)
                 ax2.yaxis.set_major_formatter(
@@ -156,7 +155,6 @@ if st.button("조회", type="primary"):
                 )
                 ax2.grid(True, alpha=0.3)
                 ax2.set_facecolor("white")
-                # ax2 x축 날짜 라벨 숨김
                 ax2.tick_params(axis="x", labelbottom=False, length=0)
 
                 fig.patch.set_facecolor("white")
