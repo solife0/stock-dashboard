@@ -1,5 +1,5 @@
-streamlit>=1.32.0
-FinanceDataReader>=0.9.50
+﻿streamlit>=1.32.0
+finance-datareader>=0.9.50
 pandas>=2.0.0
 plotly>=5.18.0
 numpy>=2.0.0
